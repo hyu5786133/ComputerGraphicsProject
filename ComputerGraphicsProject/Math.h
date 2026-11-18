@@ -10,6 +10,7 @@
 //   * Matrix (4x4) .............................. slides 29 - 75
 //   * Quaternion ................................ slides 96 - 114
 //   * ShadingFrame .............................. slides 76 - 81
+//   * SphericalCoords ........................... slides 91 - 94
 //   * Colour .................................... slides 115 - 117
 //
 // Quaternion convention used throughout this file (matches slide 97 and the
@@ -61,6 +62,24 @@ template <typename T>
 static T lerp(const T a, const T b, float t)
 {
 	return a * (1.0f - t) + (b * t);
+}
+
+// Interpolate three per-vertex attributes with barycentric weights
+// (Rasterization slide 32). Works for anything that supports "attribute * float"
+// and "attribute + attribute": float, Vec3, Colour ...
+template <typename t>
+t simpleInterpolateAttribute(t a0, t a1, t a2, float alpha, float beta, float gamma)
+{
+	return (a0 * alpha) + (a1 * beta) + (a2 * gamma);
+}
+
+// Convert a [0, 1] colour channel into an 8 bit value for the back buffer.
+// Rounds (rather than truncates) and clamps, so values drifting slightly
+// outside [0, 1] from interpolation error cannot wrap around.
+inline unsigned char toByte(float value)
+{
+	const float clamped = std::min(1.0f, std::max(0.0f, value));
+	return static_cast<unsigned char>(clamped * 255.0f + 0.5f);
 }
 
 
@@ -908,6 +927,121 @@ public:
 		printf("%su", label); u.Print(" = ");
 		printf("%sv", label); v.Print(" = ");
 		printf("%sn", label); n.Print(" = ");
+	}
+};
+
+
+// ---------------------------------------------------------------------------
+// Spherical Coordinates (slides 91 - 94)
+//
+//     (theta, phi, r) with
+//          theta : polar angle   in [0, pi]   - measured from the "up" axis
+//          phi   : azimuth angle in [0, 2pi]  - measured from +x towards +y
+//          r     : radius, r >= 0
+//
+// Two conventions are used in the course:
+//     ZUp - shading space: theta is measured from +z   (slide 92/93, left)
+//     YUp - camera space:  theta is measured from +y   (slide 92/93, right)
+//
+//     z up:  x = r sin(theta) cos(phi)   theta = acos(z / r)
+//            y = r sin(theta) sin(phi)   phi   = atan2(y, x)
+//            z = r cos(theta)
+//
+//     y up:  x = r sin(theta) cos(phi)   theta = acos(y / r)
+//            y = r cos(theta)            phi   = atan2(z, x)
+//            z = r sin(theta) sin(phi)
+// ---------------------------------------------------------------------------
+enum class SphericalAxis { ZUp, YUp };
+
+class SphericalCoords
+{
+public:
+	float theta;	// polar angle, [0, pi]
+	float phi;		// azimuth, [0, 2pi]
+	float r;		// radius, >= 0
+
+	// +z direction, unit length
+	SphericalCoords() : theta(0.0f), phi(0.0f), r(1.0f) {}
+	SphericalCoords(float theta, float phi, float r = 1.0f)
+		: theta(theta), phi(phi), r(r) {}
+	// direct conversion from a cartesian vector
+	explicit SphericalCoords(const Vec3& vec, SphericalAxis axis = SphericalAxis::ZUp)
+		: theta(0.0f), phi(0.0f), r(0.0f)
+	{
+		SetFromVector(vec, axis);
+	}
+
+	// (x, y, z) -> (theta, phi, r)  (slides 92 and 94)
+	static SphericalCoords FromVector(const Vec3& vec, SphericalAxis axis = SphericalAxis::ZUp)
+	{
+		SphericalCoords coords;
+		coords.SetFromVector(vec, axis);
+		return coords;
+	}
+
+	void SetFromVector(const Vec3& vec, SphericalAxis axis = SphericalAxis::ZUp)
+	{
+		const float radius = vec.Length();
+
+		// the origin has no direction, so there is no meaningful theta / phi
+		if (radius <= 0.0f)
+		{
+			theta = 0.0f;
+			phi = 0.0f;
+			r = 0.0f;
+			return;
+		}
+
+		const Vec3 dir = vec * (1.0f / radius);		// unit direction
+		const bool zUp = (axis == SphericalAxis::ZUp);
+
+		// the up axis and the "around" axis swap places between the two
+		// conventions (z up: up = z, around = y; y up: up = y, around = z)
+		const float up = zUp ? dir.z : dir.y;
+		const float around = zUp ? dir.y : dir.z;
+
+		// acos() is only defined on [-1, 1]; rounding can push a unit component
+		// just outside that range, so clamp before taking the arc cosine.
+		const float cosTheta = std::min(1.0f, std::max(-1.0f, up));
+
+		theta = acosf(cosTheta);
+		// atan2f gives the correct quadrant (arctan alone cannot) - slide 92
+		phi = atan2f(around, dir.x);
+
+		// atan2f returns [-pi, pi]; wrap into the [0, 2pi] range the slide uses
+		if (phi < 0.0f)
+			phi += 2.0f * (float)M_PI;
+
+		this->r = radius;
+	}
+
+	// (theta, phi, r) -> (x, y, z)  (slides 93 and 94)
+	Vec3 ToVector(SphericalAxis axis = SphericalAxis::ZUp) const
+	{
+		const float sinTheta = sinf(theta);
+		const float cosTheta = cosf(theta);
+
+		const float x = r * sinTheta * cosf(phi);
+		const float around = r * sinTheta * sinf(phi);	// this is y or z
+		const float up = r * cosTheta;					// this is z or y
+
+		if (axis == SphericalAxis::ZUp)
+			return Vec3(x, around, up);		// x, y, z
+		return Vec3(x, up, around);			// x, y, z (y up)
+	}
+
+	// the direction on the unit sphere, ignoring r
+	Vec3 ToUnitVector(SphericalAxis axis = SphericalAxis::ZUp) const
+	{
+		return SphericalCoords(theta, phi, 1.0f).ToVector(axis);
+	}
+
+	float SinTheta() const { return sinf(theta); }
+	float CosTheta() const { return cosf(theta); }
+
+	void Print(const char* label = "") const
+	{
+		printf("%stheta=%f phi=%f r=%f\n", label, theta, phi, r);
 	}
 };
 

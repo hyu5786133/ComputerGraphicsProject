@@ -144,10 +144,13 @@
   </ItemDefinitionGroup>
 
   <ItemGroup>
-    <ClCompile Include="MathTests.cpp" />
+    <ClCompile Include="Main.cpp" />
+    <ClCompile Include="Triangle.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="GamesEngineeringBase.h" />
     <ClInclude Include="Math.h" />
+    <ClInclude Include="Triangle.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
