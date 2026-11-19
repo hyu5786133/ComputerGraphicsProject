@@ -5,22 +5,38 @@
 // ---------------------------------------------------------------------------
 // Camera (Rasterization slides 36 - 79)
 //
-// So far this holds the view space -> screen space step. The LookAt / view
-// matrix from slides 76 - 79 goes here as well once it is implemented.
+// The view (LookAt) matrix and the view space -> screen space step. The
+// per-scene camera parameters live in the caller for now; if this grows
+// (projection + view + viewport in one place) it can become a Camera class.
 // ---------------------------------------------------------------------------
 
-// Transform a vertex from view space into screen space (slides 62 - 63):
+// View matrix (slides 75 - 79).
 //
-//     clip = P * v      (slide 62: p_c = P * p)
-//     ndc  = clip / w   (slide 62: divide by w, w ends up as 1/w)
+// The camera matrix places the camera in the world; the view matrix is its
+// inverse and moves the world into the camera's space. LookAt builds that
+// inverse directly from a position, a target and an up vector - which is why
+// it is the usual way to make a view matrix.
+inline Matrix MakeViewMatrix(const Vec3& from, const Vec3& to, const Vec3& up)
+{
+	Matrix view;
+	view.lookAt(from, to, up);
+	return view;
+}
+
+// Transform a world space vertex into screen space (slides 62 - 63):
+//
+//     clip = (P * V) * v   (slide 62: p_c = P * p)
+//     ndc  = clip / w      (slide 62: divide by w, w ends up as 1/w)
 //     px   = (x + 1) / 2 * width        (slide 63: map to pixels, flip y)
 //     py   = (1 - (y + 1) / 2) * height
 //
+// 'viewProjection' is the combined P * V matrix (our matrix product applies
+// the right hand side first, so P * V means "view, then project").
 // The returned z is the NDC depth in [0, 1] (used by the z buffer later) and
 // the returned w is 1/w (used by perspective correct interpolation later).
-inline Vec4 ToScreen(const Matrix& projection, const Vec4& viewVertex, float width, float height)
+inline Vec4 ToScreen(const Matrix& viewProjection, const Vec4& worldVertex, float width, float height)
 {
-	const Vec4 clip = projection * viewVertex;
+	const Vec4 clip = viewProjection * worldVertex;
 	const Vec4 ndc = clip.perspectiveDivide();
 
 	return Vec4(

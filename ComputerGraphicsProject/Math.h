@@ -524,6 +524,48 @@ public:
 		m[15] = 0.0f;							// so w = z, not 1
 	}
 
+	// LookAt / view matrix (Rasterization slides 76 - 78).
+	//
+	// Transforms from world space into camera space: the camera is at 'from',
+	// looks at 'to' and 'up' says roughly which way is up. The rows of the
+	// rotation part are the camera's right, up and view direction:
+	//
+	//     [ right.x  right.y  right.z  -from . right ]
+	//     [ up'.x    up'.y    up'.z    -from . up'   ]
+	//     [ dir.x    dir.y    dir.z    -from . dir   ]
+	//     [ 0        0        0        1             ]
+	//
+	// The construction is the same Gram-Schmidt style basis building as the
+	// shading frame (slide 77).
+	void lookAt(const Vec3& from, const Vec3& to, const Vec3& up)
+	{
+		// view direction: from the camera towards the target
+		Vec3 dir = (to - from).normalize();
+
+		// from == to has no direction at all, so pick one
+		if (dir.LengthSquare() < 1e-8f)
+			dir = Vec3(0.0f, 0.0f, 1.0f);
+
+		// right = up x dir. If 'up' is parallel to the view direction the cross
+		// product collapses to zero, so fall back to another axis.
+		Vec3 right = up.Cross(dir);
+		if (right.LengthSquare() < 1e-8f)
+			right = Vec3(0.0f, 1.0f, 0.0f).Cross(dir);
+		if (right.LengthSquare() < 1e-8f)
+			right = Vec3(1.0f, 0.0f, 0.0f).Cross(dir);
+		right = right.normalize();
+
+		// 'up' is corrected so that the three axes are exactly orthonormal:
+		// up' = dir x right (slide 77)
+		const Vec3 correctedUp = dir.Cross(right);
+
+		identity();
+
+		m[0] = right.x; m[1] = right.y; m[2] = right.z; m[3] = -from.Dot(right);
+		m[4] = correctedUp.x; m[5] = correctedUp.y; m[6] = correctedUp.z; m[7] = -from.Dot(correctedUp);
+		m[8] = dir.x; m[9] = dir.y; m[10] = dir.z; m[11] = -from.Dot(dir);
+	}
+
 	// multiply a 4D vector by the matrix
 	Vec4 operator*(const Vec4& v) const
 	{
