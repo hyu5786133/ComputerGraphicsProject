@@ -148,6 +148,7 @@
     <ClCompile Include="Triangle.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Camera.h" />
     <ClInclude Include="GamesEngineeringBase.h" />
     <ClInclude Include="Math.h" />
     <ClInclude Include="Triangle.h" />

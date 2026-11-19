@@ -350,16 +350,25 @@ public:
 		return v[0] * pVec.v[0] + v[1] * pVec.v[1] + v[2] * pVec.v[2] + v[3] * pVec.v[3];
 	}
 
-	// drop w (perspective divide, if w != 0) -> used a lot from now on
+	// drop w
 	Vec3 xyz() const
 	{
 		return Vec3(x, y, z);
 	}
-	Vec3 perspectiveDivide() const
+
+	// Perspective divide (Rasterization slides 58 and 62):
+	//     (x, y, z, w)  ->  (x/w, y/w, z/w, 1/w)
+	// The w component ends up storing 1/w - which, for a perspective
+	// projection, is 1/z of the original point. It is needed later for
+	// perspective correct interpolation, so it is kept instead of being
+	// thrown away.
+	Vec4 perspectiveDivide() const
 	{
-		if (w == 0.0f || w == 1.0f)
-			return Vec3(x, y, z);
-		return Vec3(x / w, y / w, z / w);
+		if (w == 0.0f)
+			return Vec4(0.0f, 0.0f, 0.0f, 0.0f);	// point at infinity / behind
+
+		const float inverseW = 1.0f / w;
+		return Vec4(x * inverseW, y * inverseW, z * inverseW, inverseW);
 	}
 
 	void Print(const char* label = "") const
@@ -487,6 +496,32 @@ public:
 	void setScale(float s)
 	{
 		setScale(Vec3(s, s, s));
+	}
+
+	// Perspective projection matrix (Rasterization slides 49 - 61).
+	//
+	//     [ 1 / (aspect * tan(fov/2))      0                  0                0 ]
+	//     [ 0                       1 / tan(fov/2)            0                0 ]
+	//     [ 0                              0            far/(far-near)  -far*near/(far-near) ]
+	//     [ 0                              0                  1                0 ]
+	//
+	// fovDegrees is the vertical field of view, aspect = width / height.
+	// The last row makes w = z, so after the perspective divide the camera's
+	// view frustum maps onto the cube -1..1 in x and y and 0..1 in z
+	// (slides 57 - 59), which is what the rasteriser wants.
+	void setPerspective(float fovDegrees, float aspect, float nearZ, float farZ)
+	{
+		const float fovRadians = fovDegrees * ((float)M_PI / 180.0f);
+		const float tanHalfFov = tanf(fovRadians * 0.5f);
+
+		identity();
+
+		m[0] = 1.0f / (aspect * tanHalfFov);	// x: the fov scale divided by the aspect ratio
+		m[5] = 1.0f / tanHalfFov;				// y: the fov scale
+		m[10] = farZ / (farZ - nearZ);			// z scale   (A, slide 51)
+		m[11] = -(farZ * nearZ) / (farZ - nearZ);	// z offset (B, slide 52)
+		m[14] = 1.0f;							// "sets w component" (slide 60)
+		m[15] = 0.0f;							// so w = z, not 1
 	}
 
 	// multiply a 4D vector by the matrix
