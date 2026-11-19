@@ -1,62 +1,61 @@
-// ---------------------------------------------------------------------------
-// Rasterization practical - LookAt matrix (slides 72 - 79)
+﻿// ---------------------------------------------------------------------------
+// Rasterization practical - clipping and the z buffer (slides 80 - 107)
 //
-// The triangle from slide 66 now lives in WORLD space and a LookAt / view
-// matrix moves the camera around it.
+// Every triangle goes through the full pipeline: transform -> clip against
+// the near and far planes -> rasterise -> depth test -> perspective correct
+// interpolation.
 //
-//   LEFT / RIGHT : orbit the camera around the triangle
+//   LEFT / RIGHT : orbit the camera around the scene
 //   UP / DOWN    : orbit up and down
-//   W / S        : move the camera closer / further
+//   W / S        : move the camera closer / further (fly into the geometry
+//                  to see the near plane clipping do its job)
 //   ESC          : quit
-//
-// The camera starts at the origin looking down +z, which makes the view matrix
-// the identity: the picture is the same one slide 67 shows.
 // ---------------------------------------------------------------------------
 #include "GamesEngineeringBase.h"
 
 #include "Camera.h"
+#include "Clipper.h"
+#include "DepthBuffer.h"
 #include "Math.h"
+#include "Renderer.h"
+#include "Scene.h"
 #include "Triangle.h"
 
 static const float NEAR_PLANE = 0.1f;
 static const float FAR_PLANE = 100.0f;
 
-// Keep the camera out of the degenerate configurations: looking straight up
-// makes 'up' parallel to the view direction, and getting too close crosses the
-// near plane.
 static const float MAX_PITCH = 1.4f;
-static const float MIN_DISTANCE = 0.35f;
-static const float MAX_DISTANCE = 6.0f;
+static const float MIN_DISTANCE = 0.25f;
+static const float MAX_DISTANCE = 8.0f;
 
 int main()
 {
 	GamesEngineeringBase::Window canvas;
-	canvas.create(1280, 720, "Computer Graphics - LookAt");
+	canvas.create(1280, 720, "Computer Graphics - Clipping and Z buffer");
 
 	const float width = static_cast<float>(canvas.getWidth());
 	const float height = static_cast<float>(canvas.getHeight());
 
-	// Projection matrix with a 45 degree field of view (slide 66)
+	// Projection with a 45 degree field of view (slide 66)
 	Matrix projection;
 	projection.setPerspective(45.0f, width / height, NEAR_PLANE, FAR_PLANE);
 
-	// The vertices from slide 66, now in world space
-	const Vec3 position[3] = {
-		Vec3(0.0f, 0.3f, 1.0f),		// top
-		Vec3(0.3f, -0.3f, 1.0f),	// bottom right
-		Vec3(-0.3f, -0.3f, 1.0f),	// bottom left
-	};
+	// The near and far clip planes come out of the projection matrix
+	// (slides 81 - 82). They never change, so extract them once.
+	Vec4 nearPlane, farPlane;
+	ExtractNearFarPlanes(projection, nearPlane, farPlane);
 
-	// Slide 67 draws a flat dark green triangle: (0, 40, 0) in 0..255
-	const Colour colour(0, 40, 0);
+	DepthBuffer depthBuffer(canvas.getWidth(), canvas.getHeight());
 
-	// The camera always looks at the middle of the triangle and orbits it
-	const Vec3 target(0.0f, 0.0f, 1.0f);
+	const std::vector<SceneTriangle> scene = MakeTestScene();
+
+	// Camera orbit state
+	const Vec3 target(0.0f, 0.0f, 0.0f);
 	const Vec3 worldUp(0.0f, 1.0f, 0.0f);
 
-	float yaw = 0.0f;
-	float pitch = 0.0f;
-	float distance = 1.0f;			// puts the camera at the origin to start with
+	float yaw = 0.5f;
+	float pitch = 0.34f;
+	float distance = 6.5f;
 
 	GamesEngineeringBase::Timer timer;
 
@@ -73,16 +72,14 @@ int main()
 		if (canvas.keyPressed(VK_RIGHT)) yaw += 1.5f * dt;
 		if (canvas.keyPressed(VK_UP))    pitch += 1.2f * dt;
 		if (canvas.keyPressed(VK_DOWN))  pitch -= 1.2f * dt;
-		if (canvas.keyPressed('W'))      distance -= 1.2f * dt;
-		if (canvas.keyPressed('S'))      distance += 1.2f * dt;
+		if (canvas.keyPressed('W'))      distance -= 2.0f * dt;
+		if (canvas.keyPressed('S'))      distance += 2.0f * dt;
 
 		if (pitch > MAX_PITCH) pitch = MAX_PITCH;
 		if (pitch < -MAX_PITCH) pitch = -MAX_PITCH;
 		if (distance < MIN_DISTANCE) distance = MIN_DISTANCE;
 		if (distance > MAX_DISTANCE) distance = MAX_DISTANCE;
 
-		// Camera position: the target minus a direction, so that yaw = 0 and
-		// pitch = 0 leaves the camera at (0, 0, 0) looking down +z.
 		const float cosPitch = cosf(pitch);
 		const Vec3 direction(
 			sinf(yaw) * cosPitch,
@@ -90,25 +87,24 @@ int main()
 			cosf(yaw) * cosPitch);
 		const Vec3 cameraPosition = target - direction * distance;
 
-		// --- world -> clip ------------------------------------------------
-		// View matrix from the camera, then compose it with the projection
-		// (slides 75 - 79). Our product applies the right hand side first, so
-		// P * V means "view first, then project".
+		// --- matrices -------------------------------------------------------
 		const Matrix view = MakeViewMatrix(cameraPosition, target, worldUp);
-		const Matrix viewProjection = projection * view;
 
-		// --- project the three vertices -----------------------------------
-		Vec4 screen[3];
-		for (int i = 0; i < 3; ++i)
-			screen[i] = ToScreen(viewProjection, Vec4(position[i].x, position[i].y, position[i].z, 1.0f),
-				width, height);
+		// --- draw -----------------------------------------------------------
+		canvas.clear();					// black background
+		depthBuffer.clear();			// z_buffer[x][y] <- 1 for every pixel (slide 86)
 
-		const Triangle triangle(screen[0], screen[1], screen[2], colour, colour, colour);
+		for (const SceneTriangle& triangle : scene)
+		{
+			RenderTriangle(canvas, view, projection, nearPlane, farPlane, depthBuffer,
+				triangle.position[0], triangle.position[1], triangle.position[2],
+				triangle.colour[0], triangle.colour[1], triangle.colour[2]);
+		}
 
-		canvas.clear();				// black background
-		triangle.draw(canvas);
 		canvas.present();
 	}
 
 	return 0;
 }
+
+

@@ -149,11 +149,16 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Camera.h" />
+    <ClInclude Include="Clipper.h" />
+    <ClInclude Include="DepthBuffer.h" />
     <ClInclude Include="GamesEngineeringBase.h" />
     <ClInclude Include="Math.h" />
+    <ClInclude Include="Renderer.h" />
+    <ClInclude Include="Scene.h" />
     <ClInclude Include="Triangle.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
 </Project>
+

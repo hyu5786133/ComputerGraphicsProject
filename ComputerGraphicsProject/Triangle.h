@@ -10,22 +10,39 @@ namespace GamesEngineeringBase
 	class Window;
 }
 
+class DepthBuffer;
+
 // ---------------------------------------------------------------------------
-// Triangle (Rasterization lecture, slides 25 - 33)
+// Triangle (Rasterization lecture, slides 25 - 33 and 85 - 105)
 //
 // Three vertices in SCREEN space (pixel coordinates, y pointing DOWN, so a
 // larger y is lower on the screen) and one colour per vertex.
 //
-// Rasterising follows exactly the slides:
+// A screen space vertex carries everything the later stages need:
+//     x, y  : pixel position
+//     z     : NDC depth in [0, 1]        (z buffer, slide 87)
+//     w     : 1 / w from the divide      (perspective correct interpolation,
+//                                         slides 92 - 105)
+//
+// Rasterising follows the slides:
 //   * slide 29: edge function
 //   * slide 30: find the bounds, then loop over the pixels inside them
 //   * slide 31: barycentric coordinates = edge functions normalised by area
-//   * slide 32: interpolate the per-vertex attributes and write the pixel
+//   * slide 87: interpolate z with the barycentrics, then depth test
+//   * slide 105: interpolate the colour perspective correctly
 // ---------------------------------------------------------------------------
 class Triangle
 {
 public:
-	Vec4 v[3];		// vertices in screen space (x and y are used for now)
+	// What the rasteriser works out for one sample (slides 87 and 105)
+	struct Fragment
+	{
+		float alpha, beta, gamma;	// barycentric weights of v[0], v[1], v[2]
+		float depth;				// interpolated NDC z
+		Colour colour;				// perspective correct interpolated colour
+	};
+
+	Vec4 v[3];		// vertices in screen space
 	Colour c[3];	// one colour per vertex, interpolated across the triangle
 
 	Triangle();
@@ -62,10 +79,12 @@ public:
 	// the "is the sample inside the triangle" test (slide 26).
 	static bool isInside(float alpha, float beta, float gamma);
 
-	// Colour of the triangle at screen point p. Returns false if p is outside.
-	bool interpolate(const Vec4& p, Colour& outColour) const;
-	bool interpolate(const Vec4& p, float inverseProjectedArea, Colour& outColour) const;
+	// Work out the depth and the colour at screen point p. Returns false when
+	// p is outside the triangle.
+	bool computeFragment(const Vec4& p, float inverseProjectedArea, Fragment& out) const;
+	bool computeFragment(const Vec4& p, Fragment& out) const;
 
-	// Rasterise the triangle into the canvas (slides 30 - 32)
-	void draw(GamesEngineeringBase::Window& canvas) const;
+	// Rasterise into the canvas, depth testing against the z buffer
+	// (slides 30 - 32, 86 and 105).
+	void draw(GamesEngineeringBase::Window& canvas, DepthBuffer& depthBuffer) const;
 };

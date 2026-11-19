@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------------------
 // Camera (Rasterization slides 36 - 79)
 //
-// The view (LookAt) matrix and the view space -> screen space step. The
+// The view (LookAt) matrix and the clip space -> screen space step. The
 // per-scene camera parameters live in the caller for now; if this grows
 // (projection + view + viewport in one place) it can become a Camera class.
 // ---------------------------------------------------------------------------
@@ -23,20 +23,16 @@ inline Matrix MakeViewMatrix(const Vec3& from, const Vec3& to, const Vec3& up)
 	return view;
 }
 
-// Transform a world space vertex into screen space (slides 62 - 63):
+// Clip space -> screen space (slides 62 - 63):
 //
-//     clip = (P * V) * v   (slide 62: p_c = P * p)
-//     ndc  = clip / w      (slide 62: divide by w, w ends up as 1/w)
-//     px   = (x + 1) / 2 * width        (slide 63: map to pixels, flip y)
-//     py   = (1 - (y + 1) / 2) * height
+//     ndc = clip / w    (slide 62: divide by w, w ends up as 1/w)
+//     px  = (x + 1) / 2 * width          (slide 63: map to pixels, flip y)
+//     py  = (1 - (y + 1) / 2) * height
 //
-// 'viewProjection' is the combined P * V matrix (our matrix product applies
-// the right hand side first, so P * V means "view, then project").
-// The returned z is the NDC depth in [0, 1] (used by the z buffer later) and
-// the returned w is 1/w (used by perspective correct interpolation later).
-inline Vec4 ToScreen(const Matrix& viewProjection, const Vec4& worldVertex, float width, float height)
+// The returned z is the NDC depth in [0, 1] (z buffer, slide 87) and the
+// returned w is 1/w (perspective correct interpolation, slide 105).
+inline Vec4 ClipToScreen(const Vec4& clip, float width, float height)
 {
-	const Vec4 clip = viewProjection * worldVertex;
 	const Vec4 ndc = clip.perspectiveDivide();
 
 	return Vec4(
@@ -44,4 +40,13 @@ inline Vec4 ToScreen(const Matrix& viewProjection, const Vec4& worldVertex, floa
 		(1.0f - (ndc.y + 1.0f) * 0.5f) * height,
 		ndc.z,
 		ndc.w);
+}
+
+// World space -> screen space in one go, for vertices that do not need
+// clipping (handy for tests and for anything already known to be on screen).
+// 'viewProjection' is the combined P * V matrix (our matrix product applies
+// the right hand side first, so P * V means "view, then project").
+inline Vec4 ToScreen(const Matrix& viewProjection, const Vec4& worldVertex, float width, float height)
+{
+	return ClipToScreen(viewProjection * worldVertex, width, height);
 }

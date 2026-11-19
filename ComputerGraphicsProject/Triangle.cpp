@@ -1,5 +1,6 @@
 #include "Triangle.h"
 
+#include "DepthBuffer.h"
 #include "GamesEngineeringBase.h"
 
 Triangle::Triangle()
@@ -50,7 +51,8 @@ void Triangle::findBounds(Vec4& topRight, Vec4& bottomLeft, unsigned int width, 
 	const float minY = std::min(v[0].y, std::min(v[1].y, v[2].y));
 
 	// ... clamped to the canvas, so the pixel loop can never run outside the
-	// back buffer (slide 30)
+	// back buffer (slide 30). This is also what takes care of the left, right,
+	// top and bottom clip planes (slide 84).
 	topRight.x = std::min(maxX, static_cast<float>(width) - 1.0f);
 	topRight.y = std::min(maxY, static_cast<float>(height) - 1.0f);
 	bottomLeft.x = std::max(minX, 0.0f);
@@ -87,30 +89,42 @@ bool Triangle::isInside(float alpha, float beta, float gamma)
 	return alpha >= 0.0f && beta >= 0.0f && gamma >= 0.0f;
 }
 
-bool Triangle::interpolate(const Vec4& p, Colour& outColour) const
+bool Triangle::computeFragment(const Vec4& p, Fragment& out) const
 {
 	const float area = projectedArea();
 
 	if (fabsf(area) < 1e-8f)
 		return false;
 
-	return interpolate(p, 1.0f / area, outColour);
+	return computeFragment(p, 1.0f / area, out);
 }
 
-bool Triangle::interpolate(const Vec4& p, float inverseProjectedArea, Colour& outColour) const
+bool Triangle::computeFragment(const Vec4& p, float inverseProjectedArea, Fragment& out) const
 {
-	float alpha, beta, gamma;
-	computeBarycentric(p, inverseProjectedArea, alpha, beta, gamma);
+	computeBarycentric(p, inverseProjectedArea, out.alpha, out.beta, out.gamma);
 
-	if (!isInside(alpha, beta, gamma))
+	if (!isInside(out.alpha, out.beta, out.gamma))
 		return false;
 
-	// Interpolate the attributes from the three vertices (slide 27 and 32)
-	outColour = simpleInterpolateAttribute(c[0], c[1], c[2], alpha, beta, gamma);
+	// Depth: linear in screen space (slide 87). That works because the
+	// projected z is A + B/z, and 1/z is what varies linearly across the
+	// projected triangle.
+	out.depth = out.alpha * v[0].z + out.beta * v[1].z + out.gamma * v[2].z;
+
+	// Colour: NOT linear in screen space, so it has to be scaled by the
+	// vertices' 1/w before interpolating (slide 105). v[i].w is 1/w.
+	const float fragW =
+		(out.alpha * v[0].w) + (out.beta * v[1].w) + (out.gamma * v[2].w);
+
+	out.colour = perspectiveCorrectInterpolateAttribute(
+		c[0], c[1], c[2],
+		v[0].w, v[1].w, v[2].w,
+		out.alpha, out.beta, out.gamma, fragW);
+
 	return true;
 }
 
-void Triangle::draw(GamesEngineeringBase::Window& canvas) const
+void Triangle::draw(GamesEngineeringBase::Window& canvas, DepthBuffer& depthBuffer) const
 {
 	const float area = projectedArea();
 
@@ -131,11 +145,16 @@ void Triangle::draw(GamesEngineeringBase::Window& canvas) const
 			// Sample at the centre of the pixel
 			const Vec4 p(static_cast<float>(x) + 0.5f, static_cast<float>(y) + 0.5f, 0.0f, 1.0f);
 
-			Colour frag;
-			if (!interpolate(p, inverseArea, frag))
+			Fragment fragment;
+			if (!computeFragment(p, inverseArea, fragment))
 				continue;	// outside the triangle: discard the sample
 
-			canvas.draw(x, y, toByte(frag.r), toByte(frag.g), toByte(frag.b));
+			// Depth test: only shade the pixel when this fragment is in front
+			// (slide 86 lines 6 - 8)
+			if (!depthBuffer.testAndSet(static_cast<unsigned int>(x), static_cast<unsigned int>(y), fragment.depth))
+				continue;
+
+			canvas.draw(x, y, toByte(fragment.colour.r), toByte(fragment.colour.g), toByte(fragment.colour.b));
 		}
 	}
 }

@@ -73,6 +73,27 @@ t simpleInterpolateAttribute(t a0, t a1, t a2, float alpha, float beta, float ga
 	return (a0 * alpha) + (a1 * beta) + (a2 * gamma);
 }
 
+// Perspective correct interpolation (Rasterization slide 105).
+//
+// Interpolating with screen space barycentrics alone is wrong for anything
+// that varies in depth: 1/z is what varies linearly in screen space, not the
+// attribute itself. So scale each attribute by its vertex's 1/w, interpolate
+// those, and divide by the interpolated 1/w ("frag_w") to scale back.
+//
+// v0_w, v1_w, v2_w are the 1/w values stored in the screen space vertices and
+// frag_w is alpha*v0_w + beta*v1_w + gamma*v2_w.
+template <typename t>
+t perspectiveCorrectInterpolateAttribute(t a0, t a1, t a2,
+	float v0_w, float v1_w, float v2_w,
+	float alpha, float beta, float gamma, float frag_w)
+{
+	t attrib[3];
+	attrib[0] = a0 * alpha * v0_w;
+	attrib[1] = a1 * beta * v1_w;
+	attrib[2] = a2 * gamma * v2_w;
+	return ((attrib[0] + attrib[1] + attrib[2]) / frag_w);
+}
+
 // Convert a [0, 1] colour channel into an 8 bit value for the back buffer.
 // Rounds (rather than truncates) and clamps, so values drifting slightly
 // outside [0, 1] from interpolation error cannot wrap around.
@@ -416,6 +437,13 @@ public:
 	float operator[] (int index) const
 	{
 		return m[index];
+	}
+
+	// one row of the matrix as a Vec4. Used to build clip planes out of the
+	// projection matrix (Rasterization slides 81 - 82).
+	Vec4 row(int index) const
+	{
+		return Vec4(m[index * 4 + 0], m[index * 4 + 1], m[index * 4 + 2], m[index * 4 + 3]);
 	}
 
 	// transpose the matrix (flips rows and columns, slide 61)
